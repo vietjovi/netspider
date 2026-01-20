@@ -80,10 +80,12 @@ class StringSet:
 
 class Output:
     """Thread-safe file output"""
-    def __init__(self, folder, filename):
-        self.folder = folder
-        self.filename = filename
-        self.filepath = os.path.join(folder, filename)
+    def __init__(self, filepath):
+        self.filepath = filepath
+        # Create directory if it doesn't exist
+        dir_path = os.path.dirname(filepath)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
         self._lock = threading.Lock()
         self._file = open(self.filepath, 'a', encoding='utf-8')
     
@@ -331,12 +333,8 @@ class Crawler:
         # Initialize output
         self.output = None
         if args.output:
-            filename = site.replace('://', '_').replace('/', '_').replace('.', '_')
-            if filename.endswith('_'):
-                filename = filename[:-1]
-            if not filename:
-                filename = 'output'
-            self.output = Output(args.output, filename)
+            # args.output is a file path
+            self.output = Output(args.output)
         
         # Initialize session
         self.session = requests.Session()
@@ -628,7 +626,18 @@ class Crawler:
             
             output_format = " ".join(parts)
         
-        if not self.args.quiet or self.args.clean or self.args.json:
+        # Print output
+        # Quiet mode: print URLs only (no tags, no summary shown later)
+        # Clean/JSON mode: print with formatting
+        # Normal mode: print with full formatting
+        if self.args.quiet:
+            # Quiet mode: just print the URL
+            print(output_format)
+        elif self.args.clean or self.args.json:
+            # Clean or JSON mode
+            print(output_format)
+        else:
+            # Normal mode
             print(output_format)
         
         if self.output:
@@ -1623,8 +1632,12 @@ def crawl_site(site, args, logger):
     if crawler.executor:
         crawler.executor.shutdown(wait=True)
     
-    # Print summary statistics
-    if not args.quiet and not args.json or args.clean:
+    # Print summary statistics (skip if quiet mode)
+    if args.quiet:
+        # Quiet mode: only URLs, no summary
+        return
+    
+    if not args.json or args.clean:
         # In clean mode, always show summary
         if args.clean:
             print("")
@@ -1688,7 +1701,7 @@ def main():
     parser.add_argument('-s', '--site', help='Site to crawl')
     parser.add_argument('-S', '--sites', help='Site list to crawl')
     parser.add_argument('-p', '--proxy', help='Proxy (Ex: http://127.0.0.1:8080)')
-    parser.add_argument('-o', '--output', help='Output folder')
+    parser.add_argument('-o', '--output', help='Output file path (e.g., output.txt or /path/to/output.txt)')
     parser.add_argument('-u', '--user-agent', default='web', 
                        help='User Agent to use (web/mobi/custom)')
     parser.add_argument('--cookie', help='Cookie to use (testA=a; testB=b)')
@@ -1749,9 +1762,7 @@ def main():
     
     logger = Logger(debug=args.debug, verbose=args.verbose, quiet=args.quiet, clean=args.clean)
     
-    # Create output folder
-    if args.output:
-        os.makedirs(args.output, exist_ok=True)
+    # Output file will be created by Output class if needed
     
     # Parse sites input
     site_list = []
